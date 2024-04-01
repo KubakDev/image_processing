@@ -51,12 +51,12 @@ def passportProcessing(image_path):
         text = pytesseract.image_to_string(img_morph,lang='eng+ara')
         texts = text.split('\n')
         # Applying the cleaning function to each text and filtering out single character or empty entries
-        print(texts)
+        app.logger.info(texts)
         filtered_texts_corrected = [clean_text(text) for text in texts if text.strip() and len(text.strip()) > 1]
 
-        print(filtered_texts_corrected)
+        app.logger.info(filtered_texts_corrected)
     else:
-        print("Image not loaded correctly. Check the file path and file format: {image_path}")
+        app.logger.info("Image not loaded correctly. Check the file path and file format: {image_path}")
 
 def clean_text(text):
     return ''.join(char for char in text if char not in ('\u200f', '\u200e'))
