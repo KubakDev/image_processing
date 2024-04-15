@@ -5,7 +5,7 @@ import os
 import cv2
 from passporteye import read_mrz
 from datetime import datetime
-from appwrite_module import get_storage, get_database
+from appwrite_module import get_storage
 from appwrite.input_file import InputFile
 from appwrite.id import ID
 import logging
@@ -24,7 +24,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 HAARCASCADE_PATH = "haarcascade_frontalface_default.xml"
 
 
-def extract_face(filepath):
+def extract_face(filepath, expand_margin=0.7):
     try:
         img = cv2.imread(filepath)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -34,14 +34,26 @@ def extract_face(filepath):
         if len(faces) == 0:
             return None  # No face detected
 
+        # Expand the detected face area
         x, y, w, h = faces[0]
-        face = img[y:y+h, x:x+w]
+        expand_w = int(w * expand_margin)
+        expand_h = int(h * expand_margin)
+
+        # Make sure the expanded area does not go out of image bounds
+        x_expanded = max(x - expand_w, 0)
+        y_expanded = max(y - expand_h, 0)
+        w_expanded = min(w + 2 * expand_w, img.shape[1] - x_expanded)
+        h_expanded = min(h + 2 * expand_h, img.shape[0] - y_expanded)
+
+        # Extract the whole frame of the face picture in the passport
+        face = img[y_expanded:y_expanded+h_expanded, x_expanded:x_expanded+w_expanded]
         face_filepath = filepath.rsplit(".", 1)[0] + "_face.jpg"
         cv2.imwrite(face_filepath, face)
         return face_filepath.replace("\\", "/")
     except Exception as e:
         app.logger.info(f"Error in extract_face: {e}")
         return None
+
 
 
 @app.route("/api/data", methods=["GET"])
@@ -62,9 +74,11 @@ def process_passport():
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
-
+        
+        print("File saved to", filepath)
         # Process the MRZ
         mrz_data = read_mrz(filepath)
+        print("Data MRZ",mrz_data)
         if mrz_data is None:
             return jsonify({"error": "Could not extract MRZ"}), 400
         mrz_dict = mrz_data.to_dict()
