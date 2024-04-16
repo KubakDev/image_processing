@@ -9,6 +9,7 @@ from appwrite_module import get_storage
 from appwrite.input_file import InputFile
 from appwrite.id import ID
 import logging
+import numpy as np
 
 app = Flask(__name__)
 CORS(app)
@@ -55,7 +56,6 @@ def extract_face(filepath, expand_margin=0.7):
         return None
 
 
-
 @app.route("/api/data", methods=["GET"])
 def get_data():
     data = {"message": "Hello from Python backend!"}
@@ -64,68 +64,50 @@ def get_data():
 
 @app.route("/api/process_passport", methods=["POST"])
 def process_passport():
-  try:
-    if "file" not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
-    if file:
+    try:
+        # Check if the part 'file' is present
+        if "file" not in request.files:
+            return jsonify({"error": "No file part"}), 400
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"error": "No selected file"}), 400
+        
+        # Save the uploaded file
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
         
-        print("File saved to", filepath)
         # Process the MRZ
         mrz_data = read_mrz(filepath)
-        print("Data MRZ",mrz_data)
         if mrz_data is None:
-            return jsonify({"error": "Could not extract MRZ"}), 400
+            # Open the saved image and process it
+            image = cv2.imread(filepath)
+            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            _, thresh_image = cv2.threshold(gray_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            processed_filepath = os.path.join(UPLOAD_FOLDER, 'processed_' + filename)
+            cv2.imwrite(processed_filepath, thresh_image)
+            mrz_data = read_mrz(processed_filepath)
+            
         mrz_dict = mrz_data.to_dict()
+        print(mrz_dict)
+        # Correct and format data from MRZ
+        personal_number = mrz_dict.get("personal_number", "").replace("<", "")
+        surname = mrz_dict.get("surname", "").lstrip("Q")
+        names = mrz_dict.get("names", "").replace("X", "")
+        country_correction = {"ITR": "IRQ"}  # Example of country code correction
+        corrected_country = country_correction.get(mrz_dict.get("country"), mrz_dict.get("country"))
+        
+        # Format dates
+        dob = datetime.strptime(mrz_dict.get("date_of_birth", "000000"), "%y%m%d").strftime("%Y-%m-%d")
+        exp_date = datetime.strptime(mrz_dict.get("expiration_date", "000000"), "%y%m%d").strftime("%Y-%m-%d")
 
-        # Apply fixes
-        surname = mrz_dict.get("surname").lstrip("Q")  # Remove leading 'Q' if present
-        names = mrz_dict.get("names").replace(
-            "X", ""
-        )  # Replace 'X' with space in names
-        personal_number = mrz_dict.get("personal_number").replace(
-            "<", ""
-        )  # Remove '<' from personal number
-
-        # Convert dates from YYMMDD to a more readable format
-        dob = datetime.strptime(mrz_dict.get("date_of_birth"), "%y%m%d").strftime(
-            "%Y-%m-%d"
-        )
-        exp_date = datetime.strptime(
-            mrz_dict.get("expiration_date"), "%y%m%d"
-        ).strftime("%Y-%m-%d")
-
-        # Apply fixes and enhancements
-        country_correction = {"ITR": "IRQ"}  # Example correction
-        corrected_country = country_correction.get(
-            mrz_dict.get("country"), mrz_dict.get("country")
-        )
-
-        # Exclude personal number if it's empty or contains only filler characters
-        personal_number = mrz_dict.get("personal_number").replace("<", "")
-        if all(c == "<" for c in mrz_dict.get("personal_number")):
-            personal_number = ""
-
-        # Convert dates from YYMMDD to a more readable format
-        dob = datetime.strptime(mrz_dict.get("date_of_birth"), "%y%m%d").strftime(
-            "%Y-%m-%d"
-        )
-        exp_date = datetime.strptime(mrz_dict.get("expiration_date"), "%y%m%d").strftime(
-            "%Y-%m-%d"
-        )
-        # Process the face image
+        # Process the face image and store it
         face_filename = extract_face(filepath)
+        # Assuming `storage.create_file` and `ID.unique` work as expected.
         result = storage.create_file('6602a873de0e9ff815f0', ID.unique(), InputFile.from_path(face_filename))
         file_url = f"https://cloud.appwrite.io/v1/storage/buckets/6602a873de0e9ff815f0/files/{result['$id']}/view?project=6602a79975c04c55b0a3"
-        if face_filename:
-            face_url = f"static/uploads/{face_filename}"  # Adjust path as necessary
 
-        # Extracting passport info with corrections
+        # Assemble the data
         extracted_data = {
             "passport_number": mrz_dict.get("number"),
             "country": corrected_country,
@@ -136,15 +118,12 @@ def process_passport():
             "sex": mrz_dict.get("sex"),
             "expiration_date": exp_date,
             "personal_number": personal_number,
+            "face_image_url": file_url if face_filename else ""
         }
 
-        # Include the face image URL if the face was processed
-        if face_filename:
-            extracted_data["face_image_url"] = file_url
-
         return jsonify(extracted_data)
-  except Exception as e:
-      return None
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
