@@ -28,29 +28,29 @@ HAARCASCADE_PATH = "haarcascade_frontalface_default.xml"
 def extract_face(filepath, expand_margin=0.7):
     try:
         img = cv2.imread(filepath)
-        if img is None:
-           app.logger.info(f"Failed to read image file from {filepath}")
-           return None
-
-        # Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        # Apply histogram equalization
-        gray = cv2.equalizeHist(gray)
-
         face_cascade = cv2.CascadeClassifier(HAARCASCADE_PATH)
-        if face_cascade.empty():
-           app.logger.info(f"Failed to load Haar cascade file from {HAARCASCADE_PATH}")
-           return None
-
-        # Adjust scaleFactor and minNeighbors
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
         if len(faces) == 0:
-            app.logger.info(f"No faces detected in image file {filepath}")
             return None  # No face detected
 
-        # Rest of your code...
+        # Expand the detected face area
+        x, y, w, h = faces[0]
+        expand_w = int(w * expand_margin)
+        expand_h = int(h * expand_margin)
+
+        # Make sure the expanded area does not go out of image bounds
+        x_expanded = max(x - expand_w, 0)
+        y_expanded = max(y - expand_h, 0)
+        w_expanded = min(w + 2 * expand_w, img.shape[1] - x_expanded)
+        h_expanded = min(h + 2 * expand_h, img.shape[0] - y_expanded)
+
+        # Extract the whole frame of the face picture in the passport
+        face = img[y_expanded:y_expanded+h_expanded, x_expanded:x_expanded+w_expanded]
+        face_filepath = filepath.rsplit(".", 1)[0] + "_face.jpg"
+        cv2.imwrite(face_filepath, face)
+        return face_filepath.replace("\\", "/")
     except Exception as e:
         app.logger.info(f"Error in extract_face: {e}")
         return None
