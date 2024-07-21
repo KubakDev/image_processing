@@ -122,7 +122,7 @@ def process_passport():
             "sex": mrz_dict.get("sex"),
             "expiration_date": exp_date,
             "personal_number": personal_number,
-            "face_image_url": file_url if face_filename else ""
+            "face_image_url": file_url
         }
 
         return jsonify(extracted_data)
